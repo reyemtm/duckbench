@@ -1,0 +1,25 @@
+{
+  "name": "duck-vs-sqlite",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "generate": "node generate-data.js",
+    "init": "node init-databases.js",
+    "setup": "npm run generate && npm run init",
+    "benchmark": "node benchmark.js",
+    "optimize": "node optimize-sqlite.js",
+    "fts": "node fts-benchmark.js",
+    "analyze": "node analyze-bottlenecks.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "better-sqlite3": "^12.5.0",
+    "duckdb": "^1.4.2",
+    "express": "^5.2.1"
+  }
+}
