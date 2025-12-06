@@ -15,6 +15,11 @@ const PORT = 3023;
 // Database variables
 let sqliteDb, sqliteCheckpointDb, duckDb, duckConn;
 
+function ensureDirectories() {
+  fs.mkdirSync("./db", { recursive: true });
+  fs.mkdirSync("./data", { recursive: true });
+}
+
 // Check if CSV files exist and generate if needed
 async function checkAndGenerateData() {
   const customersExists = fs.existsSync("./data/customers.csv");
@@ -55,6 +60,8 @@ async function checkAndInitializeDatabases() {
 
 // Initialize the server
 async function startServer() {
+  ensureDirectories();
+
   // Check and generate CSV data if needed
   await checkAndGenerateData();
 

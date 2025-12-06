@@ -8,6 +8,9 @@ async function initializeDatabases() {
     console.log("Initializing databases...\n");
 
     try {
+      fs.mkdirSync("./db", { recursive: true });
+      fs.mkdirSync("./data", { recursive: true });
+
       // Initialize SQLite
       console.log("=== SQLite Setup ===");
       console.time("SQLite total setup");

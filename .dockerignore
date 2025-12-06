@@ -2,9 +2,11 @@
 .git
 .gitignore
 
-# Ignore data files
-data/**.*
-db/**.*
+# Ignore data files but keep directory markers
+data/*
+!data/.gitkeep
+db/*
+!db/.gitkeep
 
 # Ignore databases
 *.db
