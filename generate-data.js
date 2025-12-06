@@ -4,7 +4,7 @@ const path = require("path");
 // Configuration
 const NUM_CUSTOMERS = 100000;
 const NUM_PRODUCTS = 10000;
-const NUM_ORDERS = 8000000; // 8 million orders
+const NUM_ORDERS = 10000000; // 10 million orders
 const BATCH_SIZE = 100000;
 
 async function generateData() {
