@@ -1,7 +1,4 @@
-FROM alpine:3.19 AS build
-
-# Install Node.js and npm
-RUN apk add --no-cache nodejs npm
+FROM node:20-slim AS build
 
 WORKDIR /app
 
@@ -9,10 +6,7 @@ COPY package*.json ./
 
 RUN npm ci --only=production
 
-FROM alpine:3.19
-
-# Install only Node.js runtime (no npm needed in production)
-RUN apk add --no-cache nodejs
+FROM node:20-slim
 
 WORKDIR /app
 
