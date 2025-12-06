@@ -63,8 +63,8 @@ async function checkAndGenerateData() {
 }
 
 async function checkAndInitDatabases() {
-  const sqliteExists = fs.existsSync("./analytics.db");
-  const duckdbExists = fs.existsSync("./analytics.duckdb");
+  const sqliteExists = fs.existsSync("./db/analytics.db");
+  const duckdbExists = fs.existsSync("./db/analytics.duckdb");
 
   if (!sqliteExists || !duckdbExists) {
     console.log("💾 Database files not found. Initializing databases...\n");
@@ -84,8 +84,8 @@ async function runBenchmark() {
   await checkAndInitDatabases();
 
   // Initialize database connections
-  sqliteDb = new Database("./analytics.db", { readonly: true });
-  duckDb = new duckdb.Database("./analytics.duckdb", { access_mode: "READ_ONLY" });
+  sqliteDb = new Database("./db/analytics.db", { readonly: true });
+  duckDb = new duckdb.Database("./db/analytics.duckdb", { access_mode: "READ_ONLY" });
   duckConn = duckDb.connect();
 
   // Run SQLite tests

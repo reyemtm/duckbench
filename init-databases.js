@@ -3,19 +3,22 @@ const duckdb = require("duckdb");
 const fs = require("fs");
 const path = require("path");
 
-console.log("Initializing databases...\n");
+async function initializeDatabases() {
+  return new Promise((resolve, reject) => {
+    console.log("Initializing databases...\n");
 
-// Initialize SQLite
-console.log("=== SQLite Setup ===");
-console.time("SQLite total setup");
+    try {
+      // Initialize SQLite
+      console.log("=== SQLite Setup ===");
+      console.time("SQLite total setup");
 
-const sqliteDb = new Database("./analytics.db");
-sqliteDb.pragma("journal_mode = WAL");
-sqliteDb.pragma("synchronous = NORMAL");
-sqliteDb.pragma("cache_size = -64000"); // 64MB cache
+      const sqliteDb = new Database("./db/analytics.db");
+      sqliteDb.pragma("journal_mode = WAL");
+      sqliteDb.pragma("synchronous = NORMAL");
+      sqliteDb.pragma("cache_size = -64000"); // 64MB cache
 
-console.log("Creating SQLite tables...");
-sqliteDb.exec(`
+      console.log("Creating SQLite tables...");
+      sqliteDb.exec(`
   DROP TABLE IF EXISTS orders;
   DROP TABLE IF EXISTS customers;
   DROP TABLE IF EXISTS products;
@@ -48,74 +51,74 @@ sqliteDb.exec(`
   );
 `);
 
-// Load data into SQLite
-console.log("Loading customers into SQLite...");
-console.time("SQLite customers");
-const customersData = fs.readFileSync("./data/customers.csv", "utf-8").split("\n").slice(1);
-const insertCustomer = sqliteDb.prepare("INSERT INTO customers VALUES (?, ?, ?, ?, ?)");
-const insertManyCustomers = sqliteDb.transaction((customers) => {
-  for (const line of customers) {
-    if (line.trim()) {
-      const [id, name, email, country, date] = line.split(",");
-      insertCustomer.run(parseInt(id), name, email, country, date);
-    }
-  }
-});
-insertManyCustomers(customersData);
-console.timeEnd("SQLite customers");
+      // Load data into SQLite
+      console.log("Loading customers into SQLite...");
+      console.time("SQLite customers");
+      const customersData = fs.readFileSync("./data/customers.csv", "utf-8").split("\n").slice(1);
+      const insertCustomer = sqliteDb.prepare("INSERT INTO customers VALUES (?, ?, ?, ?, ?)");
+      const insertManyCustomers = sqliteDb.transaction((customers) => {
+        for (const line of customers) {
+          if (line.trim()) {
+            const [id, name, email, country, date] = line.split(",");
+            insertCustomer.run(parseInt(id), name, email, country, date);
+          }
+        }
+      });
+      insertManyCustomers(customersData);
+      console.timeEnd("SQLite customers");
 
-console.log("Loading products into SQLite...");
-console.time("SQLite products");
-const productsData = fs.readFileSync("./data/products.csv", "utf-8").split("\n").slice(1);
-const insertProduct = sqliteDb.prepare("INSERT INTO products VALUES (?, ?, ?, ?)");
-const insertManyProducts = sqliteDb.transaction((products) => {
-  for (const line of products) {
-    if (line.trim()) {
-      const [id, name, category, price] = line.split(",");
-      insertProduct.run(parseInt(id), name, category, parseFloat(price));
-    }
-  }
-});
-insertManyProducts(productsData);
-console.timeEnd("SQLite products");
+      console.log("Loading products into SQLite...");
+      console.time("SQLite products");
+      const productsData = fs.readFileSync("./data/products.csv", "utf-8").split("\n").slice(1);
+      const insertProduct = sqliteDb.prepare("INSERT INTO products VALUES (?, ?, ?, ?)");
+      const insertManyProducts = sqliteDb.transaction((products) => {
+        for (const line of products) {
+          if (line.trim()) {
+            const [id, name, category, price] = line.split(",");
+            insertProduct.run(parseInt(id), name, category, parseFloat(price));
+          }
+        }
+      });
+      insertManyProducts(productsData);
+      console.timeEnd("SQLite products");
 
-console.log("Loading orders into SQLite (this will take a while)...");
-console.time("SQLite orders");
-const insertOrder = sqliteDb.prepare(
-  "INSERT INTO orders (order_id, customer_id, product_id, quantity, order_date, total_amount) VALUES (?, ?, ?, ?, ?, ?)"
-);
-const insertManyOrders = sqliteDb.transaction((orders) => {
-  for (const line of orders) {
-    if (line.trim()) {
-      const [id, custId, prodId, qty, date, amount] = line.split(",");
-      insertOrder.run(
-        parseInt(id),
-        parseInt(custId),
-        parseInt(prodId),
-        parseInt(qty),
-        date,
-        parseFloat(amount)
+      console.log("Loading orders into SQLite (this will take a while)...");
+      console.time("SQLite orders");
+      const insertOrder = sqliteDb.prepare(
+        "INSERT INTO orders (order_id, customer_id, product_id, quantity, order_date, total_amount) VALUES (?, ?, ?, ?, ?, ?)"
       );
-    }
-  }
-});
+      const insertManyOrders = sqliteDb.transaction((orders) => {
+        for (const line of orders) {
+          if (line.trim()) {
+            const [id, custId, prodId, qty, date, amount] = line.split(",");
+            insertOrder.run(
+              parseInt(id),
+              parseInt(custId),
+              parseInt(prodId),
+              parseInt(qty),
+              date,
+              parseFloat(amount)
+            );
+          }
+        }
+      });
 
-// Process orders in chunks to avoid memory issues
-const ordersFile = fs.readFileSync("./data/orders.csv", "utf-8");
-const ordersLines = ordersFile.split("\n").slice(1);
-const CHUNK_SIZE = 100000;
-for (let i = 0; i < ordersLines.length; i += CHUNK_SIZE) {
-  const chunk = ordersLines.slice(i, i + CHUNK_SIZE);
-  insertManyOrders(chunk);
-  console.log(
-    `  Loaded ${Math.min(i + CHUNK_SIZE, ordersLines.length).toLocaleString()} orders...`
-  );
-}
-console.timeEnd("SQLite orders");
+      // Process orders in chunks to avoid memory issues
+      const ordersFile = fs.readFileSync("./data/orders.csv", "utf-8");
+      const ordersLines = ordersFile.split("\n").slice(1);
+      const CHUNK_SIZE = 100000;
+      for (let i = 0; i < ordersLines.length; i += CHUNK_SIZE) {
+        const chunk = ordersLines.slice(i, i + CHUNK_SIZE);
+        insertManyOrders(chunk);
+        console.log(
+          `  Loaded ${Math.min(i + CHUNK_SIZE, ordersLines.length).toLocaleString()} orders...`
+        );
+      }
+      console.timeEnd("SQLite orders");
 
-console.log("Creating SQLite indexes...");
-console.time("SQLite indexes");
-sqliteDb.exec(`
+      console.log("Creating SQLite indexes...");
+      console.time("SQLite indexes");
+      sqliteDb.exec(`
   -- Single column indexes for foreign keys
   CREATE INDEX idx_orders_customer ON orders(customer_id);
   CREATE INDEX idx_orders_product ON orders(product_id);
@@ -149,11 +152,11 @@ sqliteDb.exec(`
   CREATE INDEX idx_orders_month_customer ON orders(order_month, customer_id);
   CREATE INDEX idx_orders_month_customer_order_amount ON orders(order_month, customer_id, order_id, total_amount);
 `);
-console.timeEnd("SQLite indexes");
+      console.timeEnd("SQLite indexes");
 
-console.log("Building monthly sales summary (pre-aggregated)...");
-console.time("SQLite monthly summary");
-sqliteDb.exec(`
+      console.log("Building monthly sales summary (pre-aggregated)...");
+      console.time("SQLite monthly summary");
+      sqliteDb.exec(`
   DROP TABLE IF EXISTS monthly_sales_summary;
   CREATE TABLE monthly_sales_summary AS
     SELECT
@@ -166,14 +169,14 @@ sqliteDb.exec(`
 
   CREATE INDEX idx_monthly_sales_summary_month ON monthly_sales_summary(month DESC);
 `);
-console.timeEnd("SQLite monthly summary");
+      console.timeEnd("SQLite monthly summary");
 
-console.log("Running ANALYZE for query optimization...");
-sqliteDb.exec("ANALYZE;");
+      console.log("Running ANALYZE for query optimization...");
+      sqliteDb.exec("ANALYZE;");
 
-console.log("Creating FTS5 virtual tables for full-text search...");
-console.time("FTS5 index creation");
-sqliteDb.exec(`
+      console.log("Creating FTS5 virtual tables for full-text search...");
+      console.time("FTS5 index creation");
+      sqliteDb.exec(`
   -- Drop existing FTS tables if they exist
   DROP TABLE IF EXISTS customers_fts;
   DROP TABLE IF EXISTS products_fts;
@@ -218,25 +221,25 @@ sqliteDb.exec(`
     JOIN customers c ON o.customer_id = c.customer_id
     JOIN products p ON o.product_id = p.product_id;
 `);
-console.timeEnd("FTS5 index creation");
+      console.timeEnd("FTS5 index creation");
 
-console.timeEnd("SQLite total setup");
+      console.timeEnd("SQLite total setup");
 
-sqliteDb.close();
+      sqliteDb.close();
 
-// Initialize DuckDB
-console.log("\n=== DuckDB Setup ===");
-console.time("DuckDB total setup");
+      // Initialize DuckDB
+      console.log("\n=== DuckDB Setup ===");
+      console.time("DuckDB total setup");
 
-const duckDb = new duckdb.Database("./analytics.duckdb");
+      const duckDb = new duckdb.Database("./db/analytics.duckdb");
 
-duckDb.all("SELECT 1", (err) => {
-  if (err) throw err;
+      duckDb.all("SELECT 1", (err) => {
+        if (err) throw err;
 
-  console.log("Creating DuckDB tables and loading data...");
-  console.time("DuckDB data load");
+        console.log("Creating DuckDB tables and loading data...");
+        console.time("DuckDB data load");
 
-  const setupQueries = `
+        const setupQueries = `
     DROP TABLE IF EXISTS orders;
     DROP TABLE IF EXISTS customers;
     DROP TABLE IF EXISTS products;
@@ -264,32 +267,50 @@ duckDb.all("SELECT 1", (err) => {
       GROUP BY order_month;
   `;
 
-  duckDb.exec(setupQueries, (err) => {
-    if (err) throw err;
-    console.timeEnd("DuckDB data load");
+        duckDb.exec(setupQueries, (err) => {
+          if (err) throw err;
+          console.timeEnd("DuckDB data load");
 
-    // Get row counts
-    duckDb.all(
-      `
+          // Get row counts
+          duckDb.all(
+            `
       SELECT
         (SELECT COUNT(*) FROM customers) as customers,
         (SELECT COUNT(*) FROM products) as products,
         (SELECT COUNT(*) FROM orders) as orders
     `,
-      (err, result) => {
-        if (err) throw err;
-        console.timeEnd("DuckDB total setup");
+            (err, result) => {
+              if (err) throw err;
+              console.timeEnd("DuckDB total setup");
 
-        console.log("\n=== Database Initialization Complete ===");
-        console.log("SQLite database: analytics.db");
-        console.log("DuckDB database: analytics.duckdb");
-        console.log("\nRecord counts:");
-        console.log(`  Customers: ${result[0].customers.toLocaleString()}`);
-        console.log(`  Products: ${result[0].products.toLocaleString()}`);
-        console.log(`  Orders: ${result[0].orders.toLocaleString()}`);
+              console.log("\n=== Database Initialization Complete ===");
+              console.log("SQLite database: analytics.db");
+              console.log("DuckDB database: analytics.duckdb");
+              console.log("\nRecord counts:");
+              console.log(`  Customers: ${result[0].customers.toLocaleString()}`);
+              console.log(`  Products: ${result[0].products.toLocaleString()}`);
+              console.log(`  Orders: ${result[0].orders.toLocaleString()}`);
 
-        duckDb.close();
-      }
-    );
+              duckDb.close();
+              resolve();
+            }
+          );
+        });
+      });
+    } catch (error) {
+      reject(error);
+    }
   });
-});
+}
+
+// Run if called directly
+if (require.main === module) {
+  initializeDatabases()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error("Database initialization failed:", err);
+      process.exit(1);
+    });
+}
+
+module.exports = { initializeDatabases };

@@ -2,28 +2,91 @@ const express = require("express");
 const Database = require("better-sqlite3");
 const duckdb = require("duckdb");
 const path = require("path");
+const fs = require("fs");
 const { Worker } = require("worker_threads");
 const { getAnalyticTests, getFTSTests } = require("./queries");
 const jsonQueries = require("./queries-json");
+const { initializeDatabases } = require("./init-databases");
+const { generateData } = require("./generate-data");
 
 const app = express();
 const PORT = 3023;
 
-// Initialize databases
-const sqliteDb = new Database("./analytics.db", { readonly: true });
-const duckDb = new duckdb.Database("./analytics.duckdb", { access_mode: "READ_ONLY" });
-const duckConn = duckDb.connect();
+// Database variables
+let sqliteDb, sqliteCheckpointDb, duckDb, duckConn;
 
-// Load in-memory JSON data on startup
-console.log("Loading in-memory JSON data...");
-const jsonLoadStart = Date.now();
-jsonQueries.loadData();
-console.log(`In-memory data loaded in ${Date.now() - jsonLoadStart}ms`);
+// Check if CSV files exist and generate if needed
+async function checkAndGenerateData() {
+  const customersExists = fs.existsSync("./data/customers.csv");
+  const productsExists = fs.existsSync("./data/products.csv");
+  const ordersExists = fs.existsSync("./data/orders.csv");
 
-// Override JSON serialization to handle BigInt globally
-BigInt.prototype.toJSON = function () {
-  return Number(this);
-};
+  if (!customersExists || !productsExists || !ordersExists) {
+    console.log("⚠️  CSV data files not found. Generating data...");
+    console.log(`   customers.csv: ${customersExists ? "✓ exists" : "✗ missing"}`);
+    console.log(`   products.csv: ${productsExists ? "✓ exists" : "✗ missing"}`);
+    console.log(`   orders.csv: ${ordersExists ? "✓ exists" : "✗ missing"}`);
+    console.log("");
+
+    await generateData();
+    console.log("\n✓ Data files generated successfully!\n");
+  } else {
+    console.log("✓ CSV data files found");
+  }
+}
+
+// Check if databases exist and initialize if needed
+async function checkAndInitializeDatabases() {
+  const sqliteExists = fs.existsSync("./db/analytics.db");
+  const duckdbExists = fs.existsSync("./db/analytics.duckdb");
+
+  if (!sqliteExists || !duckdbExists) {
+    console.log("⚠️  Databases not found. Initializing databases...");
+    console.log(`   SQLite: ${sqliteExists ? "✓ exists" : "✗ missing"}`);
+    console.log(`   DuckDB: ${duckdbExists ? "✓ exists" : "✗ missing"}`);
+    console.log("");
+
+    await initializeDatabases();
+    console.log("\n✓ Databases initialized successfully!\n");
+  } else {
+    console.log("✓ Databases found");
+  }
+}
+
+// Initialize the server
+async function startServer() {
+  // Check and generate CSV data if needed
+  await checkAndGenerateData();
+
+  // Check and initialize databases if needed
+  await checkAndInitializeDatabases();
+
+  // Open database connections
+  sqliteDb = new Database("./db/analytics.db", { readonly: true });
+  sqliteCheckpointDb = new Database("./db/analytics.db"); // Write connection for checkpointing
+  duckDb = new duckdb.Database("./db/analytics.duckdb", { access_mode: "READ_ONLY" });
+  duckConn = duckDb.connect();
+
+  // Set up periodic WAL checkpointing to prevent WAL from growing
+  setInterval(() => {
+    try {
+      sqliteCheckpointDb.pragma("wal_checkpoint(PASSIVE)");
+    } catch (e) {
+      // Ignore checkpoint errors
+    }
+  }, 30000); // Checkpoint every 30 seconds
+
+  // Load in-memory JSON data on startup
+  console.log("Loading in-memory JSON data...");
+  const jsonLoadStart = Date.now();
+  jsonQueries.loadData();
+  console.log(`In-memory data loaded in ${Date.now() - jsonLoadStart}ms`);
+
+  // Override JSON serialization to handle BigInt globally
+  BigInt.prototype.toJSON = function () {
+    return Number(this);
+  };
+}
 
 app.use(express.static("public"));
 
@@ -256,24 +319,102 @@ app.get("/api/compare", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
-  console.log(`Dashboard: http://localhost:${PORT}`);
-  console.log(`\nAPI Endpoints:`);
-  console.log(`  GET /api/benchmark?db=sqlite - Run SQLite benchmarks`);
-  console.log(`  GET /api/benchmark?db=duckdb - Run DuckDB benchmarks`);
-  console.log(`  GET /api/stats - Get database statistics`);
-});
+// Start the server
+startServer()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server running at http://localhost:${PORT}`);
+      console.log(`Dashboard: http://localhost:${PORT}`);
+      console.log(`\nAPI Endpoints:`);
+      console.log(`  GET /api/benchmark?db=sqlite - Run SQLite benchmarks`);
+      console.log(`  GET /api/benchmark?db=duckdb - Run DuckDB benchmarks`);
+      console.log(`  GET /api/stats - Get database statistics`);
+    });
+  })
+  .catch((err) => {
+    console.error("Failed to start server:", err);
+    process.exit(1);
+  });
 
 // Cleanup on exit
 process.on("SIGINT", () => {
+  console.log("\n🛑 Shutting down server...");
   try {
-    // Checkpoint and close SQLite to remove WAL files
-    sqliteDb.pragma("wal_checkpoint(TRUNCATE)");
+    // Close readonly connection first
     sqliteDb.close();
+
+    // Wait a moment for any pending operations, then checkpoint
+    setTimeout(() => {
+      try {
+        sqliteCheckpointDb.pragma("wal_checkpoint(TRUNCATE)");
+        sqliteCheckpointDb.close();
+      } catch (e) {
+        console.error("Error checkpointing SQLite:", e);
+      }
+
+      // Force remove WAL files if they still exist
+      setTimeout(() => {
+        try {
+          if (fs.existsSync("./db/analytics.db-shm")) {
+            fs.unlinkSync("./db/analytics.db-shm");
+            console.log("✓ Removed analytics.db-shm");
+          }
+          if (fs.existsSync("./db/analytics.db-wal")) {
+            fs.unlinkSync("./db/analytics.db-wal");
+            console.log("✓ Removed analytics.db-wal");
+          }
+        } catch (e) {
+          console.error("Error removing WAL files:", e);
+        }
+
+        duckDb.close();
+        console.log("✓ Server shutdown complete");
+        process.exit(0);
+      }, 500);
+    }, 500);
   } catch (e) {
-    console.error("Error closing SQLite:", e);
+    console.error("Error during shutdown:", e);
+    process.exit(1);
   }
-  duckDb.close();
-  process.exit(0);
+});
+
+process.on("SIGTERM", () => {
+  console.log("\n🛑 Shutting down server (SIGTERM)...");
+  try {
+    // Close readonly connection first
+    sqliteDb.close();
+
+    // Wait a moment for any pending operations, then checkpoint
+    setTimeout(() => {
+      try {
+        sqliteCheckpointDb.pragma("wal_checkpoint(TRUNCATE)");
+        sqliteCheckpointDb.close();
+      } catch (e) {
+        console.error("Error checkpointing SQLite:", e);
+      }
+
+      // Force remove WAL files if they still exist
+      setTimeout(() => {
+        try {
+          if (fs.existsSync("./db/analytics.db-shm")) {
+            fs.unlinkSync("./db/analytics.db-shm");
+            console.log("✓ Removed analytics.db-shm");
+          }
+          if (fs.existsSync("./db/analytics.db-wal")) {
+            fs.unlinkSync("./db/analytics.db-wal");
+            console.log("✓ Removed analytics.db-wal");
+          }
+        } catch (e) {
+          console.error("Error removing WAL files:", e);
+        }
+
+        duckDb.close();
+        console.log("✓ Server shutdown complete");
+        process.exit(0);
+      }, 500);
+    }, 500);
+  } catch (e) {
+    console.error("Error during shutdown:", e);
+    process.exit(1);
+  }
 });

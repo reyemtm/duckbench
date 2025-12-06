@@ -9,7 +9,7 @@ console.log("=".repeat(80));
 
 // Initialize SQLite with FTS5
 console.log("\n📚 Checking SQLite FTS5 indexes...\n");
-const sqliteDb = new Database("./analytics.db");
+const sqliteDb = new Database("./db/analytics.db");
 
 // Check if FTS5 tables exist
 try {
@@ -31,7 +31,7 @@ try {
 }
 
 // Initialize DuckDB
-const duckDb = new duckdb.Database("./analytics.duckdb", { access_mode: "READ_ONLY" });
+const duckDb = new duckdb.Database("./db/analytics.duckdb", { access_mode: "READ_ONLY" });
 const duckConn = duckDb.connect();
 
 function runDuckQuery(query) {

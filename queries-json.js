@@ -15,6 +15,7 @@ let ordersByDate = new Map();
 let ordersByMonth = new Map();
 
 function loadData() {
+  return;
   console.log("Loading data from CSV files...");
   const start = Date.now();
 
